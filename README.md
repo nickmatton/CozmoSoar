@@ -7,11 +7,11 @@ Language](https://soar.eecs.umich.edu/articles/articles/soar-markup-language-sml
 Several libraries and tools are needed prior to installing the Cozmo-Soar interface itself.
 
 1. Install both [Python 2.7.11](https://www.python.org/downloads/release/python-2713/) or above, and [Python 3.6](https://www.python.org/downloads/) or above. 
-    1. I also recommend creating and using a Python3.6+ virtual environment with the [virtualenv](https://virtualenv.pypa.io/en/latest/) tool. If you do this, use the python interpreter in this virtual environment for every python call except where specifically noted.
-    2. Make a note of the path to the Python 3 installation. You will need to use the path to the Python 3 binary later.
+    1. Make a note of the path to the Python 3 installation. You will need to use the path to the Python 3 binary later.
+    
 2. Download and build the Soar Cognitive Architecture.
     1. Download the source code from GitHub [here](https://github.com/SoarGroup/Soar).
-    2. Install the necessary prerequisites to Soar. The prerequrisites for each OS are listed in different pages [here](https://soar.eecs.umich.edu/articles/articles/building-soar).
+    2. Install the necessary prerequisites to Soar. The prerequrisites for each OS are listed in different pages [here](https://soar.eecs.umich.edu/articles/articles/building-soar). If building in Windows, make sure to use Visual Studio 2015. You also *must* install SWIG.
     3. In Windows, open the Visual Studio Command Prompt; in Liinux or Mac, open the terminal. Then, cd into the root directory of the Soar source code.
     4. In Windows, run the command `build all --python=[Python3 path]`, while in Linux or Mac, run `python scons/scons.py all --python=[Python3 path]`, filling in the path to your Python 3 executable from step 1. *The python executable used to run this command in Linux or Mac must be Python 2.7.11+, NOT Python 3*. 
     5. Add the `out/` directory generated to your system's `PYTHONPATH` environmental variable.
@@ -23,14 +23,56 @@ Several libraries and tools are needed prior to installing the Cozmo-Soar interf
 5. Finally, download the Cozmo-Soar Interface code from GitHub, and add its root directory to your `PYTHONPATH`.
 
 ## How to Use
-To run a Soar agent using this interface, simply `cd` to the directory holding `main.py` and run 
-
-```
+To run a Soar agent on Cozmo in interactive mode without any custom objects, run 
+```bash
 python3 main.py [path/to/agent.soar]
 ```
-replacing `[path/to/agent.soar]` appropriately. This will run the Soar agent in continuous run 
-mode. adding the `-i` flag will instead run in interactive mode, which allows you to send Soar 
-commands. In order to advance the agent in this mode, use the `step` command. 
+replacing `[path/to/agent.soar]` with the appropriate path. If you don't want to run in interactive mode, you can add the `-r` flag as such:
+```bash
+python3 main.py [path/to/agent.soar] -r
+```
+which will run without waiting for user input. Currently there is no good way to stop the agent from running, so this mode is not recommended. 
+
+You can also spawn an instance of the Soar Java debugger with the `-d` flag.
+
+## Objects
+Cozmo comes with three interactive Bluetooth-enabled "light cubes", each of which comes with its own unique fiducial marker on each side. In the image below, you can see wht these fiducials look like and which cubes they correspond to. The number in red after the name indicates the `cube-id` of the light cube with that fiducial. The names given in the image also correspond to what is put on the `^name` attribute of the cube on the input-link when the cube is being observed, with the minor exception of the "Anglepoise Lamp", which is just called "lamp."
+
+![Cozmo light cube fiducials](https://www.cs.cmu.edu/~dst/Calypso/Curriculum/01/light-cube-markers.png)
+
+The cubes connect to Cozmo via Bluetooth (as long as their batteries are charged), and can transmit information about being tapped or moved to Cozmo. Likewise, Cozmo can transmit an instruction to the cubes which turns on or off the RGB LEDs of the cubes and can change their color. Cubes are the only objects which are compatible with the high-level object-based commands such as `pick-up-object` or `go-to-objecct`.
+
+### Custom Objects
+In addition to the three light cubes included with Cozmo, you can define custom objects using an xml file. Custom objects can currently be either cubes or walls, where walls can have arbitrary heights and widths but are assumed to be 10mm thick. Custom objects must use the fiducial images found [here](http://cozmosdk.anki.com/docs/generated/cozmo.objects.html#cozmo.objects.CustomObjectMarkers). The same fiducial should be applied to each side of the cube or wall which the robot might see, which means up to six fiducials are needed for cubes and up to 2 for walls. We recommend that fiducials be printed out at least 25mm x 25mm, so Cozmo will be able to detect them. 
+
+Custom objects are defined for the interface in a `.xml` file which should be passed into the program through the `-o` flag as such:
+```bash
+python3 main.py [path/to/agent.soar] -o [path/to/objects.xml]
+```
+The XML file should have one 
+```xml
+<objects>
+...
+</objects>
+```
+tag, which can an arbitrary number of objects. Objects currently come in two varities, cube and wall, as explained above, are are created as follows:
+```xml
+<cube unique="true">
+    <name>cutting-board</name>
+    <marker width="37" height="37">Diamonds5</marker>
+    <size>43</size>
+</cube>
+```
+or 
+```xml
+<wall unique="false">
+    <name>wall</name>
+    <marker width="37" height="37">Triangles2</marker>
+    <width>300</width>
+    <height>150</height>
+</wall>
+```
+where any measurement (i.e., width or height) is in millimeters. The marker names are given on the Cozmo SDK website linked above, but are easily derivable by concatenating the shape on the fiducial (circle, triagle, diamond, or hexagon) with the number of shapes on the fiducial (2, 3, 4, or 5), making sure to capitalize the first letter of the shape. The name given in the XML will be presented to the Soar agent on the input-link as a `^name` attribute on the object augmentation.
 
 ## Cozmo-Soar Interface
 The Cozmo-Soar interface provides certain input-link attributes and values to a Soar agent, and listens for certain output-link attributes and their values to allow the agent to control the Cozmo. The nature of these are described below: 
@@ -62,7 +104,9 @@ The Cozmo-Soar interface provides certain input-link attributes and values to a 
   * connected (str)
   * cube-id (int)
   * descriptive_name (str)
+  * last-tapped (float)
   * moving (str)
+  * name (str)
   * liftable (int)
   * type (str)
   * pose
@@ -81,6 +125,9 @@ The Cozmo-Soar interface provides certain input-link attributes and values to a 
 * [serial](#serial) (str)
 
 ### Actions Overview
+* [change-block-color](#change-block-color)
+  * object-id (int)
+  * color (str)
 * [dock-with-cube](#dock-with-cube)
   * object-id (int)
 * [drive-forward](#drive-forward)
@@ -88,6 +135,7 @@ The Cozmo-Soar interface provides certain input-link attributes and values to a 
   * speed (float)
 * [go-to-object](#go-to-object)
   * object-id (int)
+  * distance (int)
 * [move-head](#move-head)
   * angle (float)
 * [move-lift](#move-lift)
@@ -129,23 +177,25 @@ Provides information about a face Cozmo can currently see, such as its pose, exp
 * `pose`: Pose information about the head. See [pose](#pose) 
 
 #### [head-angle](http://cozmosdk.anki.com/docs/generated/cozmo.robot.html#cozmo.robot.Robot.head_angle)
-A float in [-0.44, 0.78]. Indicates the angle of Cozmo's head in radians, where 0 is looking directly forward. The bounds of the range are the minimum and maximum head angle Cozmo can achieve.
+A float in [-25.00, 44.50]. Indicates the angle of Cozmo's head in degrees, where 0 is looking directly forward. The bounds of the range are the minimum and maximum head angle Cozmo can achieve.
 
 #### [lift](http://cozmosdk.anki.com/docs/generated/cozmo.util.html#cozmo.util.Pose)
 The lift augmentation to the input-link provides information about the location of the lift in several forms:
-* `angle`: A float in [-0.20, 0.79]. The angle of Cozmo's lift relative to the ground in radians. 
+* `angle`: A float in [-11.36, 45.41]. The angle of Cozmo's lift relative to the ground in degrees. 
 * `height`: A float in [32.00, 92.00]. The height of the lift off the ground in millimeters.
 * `ratio`: A float in [0.0, 1.0]. The ratio between how high the lift currently is and its maximum height. So a value of 0.0 means the lift is as low as possible, and a value of 1.0 is as high as possible.
 
 #### [object](http://cozmosdk.anki.com/docs/generated/cozmo.objects.html#cozmo.objects.ObservableObject)
 Provides information about an object Cozmo can currently see and recognize, such as its pose information, whether it can be lifted, and an ID for it. Each object augmentation corresponds to a unique object Cozmo can see, and can provide some or all of the following information:
-* `connected`: An string, either 'False' or 'True'. Indicates whether the object is connected to Cozmo via Bluetooth. Only given for Light Cube objects.
+* `connected`: An string, either 'False' or 'True'. Indicates whether the object is connected to Cozmo via Bluetooth. Only given for light cube objects.
 * `cube-id`: An integer in [1, 3] which uniquely identifies which image is on the Light Cube. The paperclip with a lightning bolt is 1, the angled square with a curved tail is 2, and the one with a small square connected to a larger square is 3. Only provided if the object is a Light Cube.
 * `descriptive-name`: A descriptive string name given to the object.
+* `last-tapped`: Indicates when the light cube object last detected being tapped, based on its internal accelerometer. The value will be in seconds since the Soar agent began.
 * `liftable`: An integer, either 0 for false or 1 for true. Indicates whether Cozmo can pick up the object with its lift.
 * `moving`: A string either "False" or "True". Indicates whether the object is moving based on its accelerometer. Only provided if the object is a Light Cube.
+* `name`: A string naming the object. For the light cubes, it is given by default as laid out in the [Objects](#objects) section. For custom objects, including walls, the name is given by the `objects.xml` file, where it is defined in a `<name>` tag.
 * `object-id`: An integer uniquely identifying the object among all those Cozmo can currently see. Note that the ID of an object may not be the same if it leaves and then reenters Cozmo's vision.
-* `type`: A string indicating what kind of object it is. Normally "object", but will be "cube" if the object is a Light Cube.
+* `type`: A string indicating what kind of object it is. The possible types are "led-cube", "cube", and "wall". The light cubes that come with Cozmo will register as "led-cubes", while custom-defined cubes will simply be "cube."
 * `pose`: Pose information about the object. See [pose](#pose).
 
 #### [face-count](http://cozmosdk.anki.com/docs/generated/cozmo.world.html#cozmo.world.World.visible_face_count)
@@ -162,7 +212,7 @@ Provides information about the location and orientation of Cozmo, objects, and f
 * `x`: A float indicating the distance in millimeters between the origin and Cozmo (or the object/face) on the x axis.
 * `y`: A float indicating the distance in millimeters between the origin and Cozmo (or the object/face) on the y axis.
 * `z`: A float indicating the distance in millimeters between the origin and Cozmo (or the object/face) on the z axis.
-* `rot`: The heading of Cozmo (or the object/face) in radians. 
+* `rot`: The heading of Cozmo (or the object/face) in degrees. 
 
 #### [robot-id](http://cozmosdk.anki.com/docs/generated/cozmo.robot.html#cozmo.robot.Robot.robot_id)
 An integer. The internal id number of the robot.
@@ -171,6 +221,14 @@ An integer. The internal id number of the robot.
 An string. The serial number of the robot in hex.
 
 ### Action Details
+
+####[change-block-color](http://cozmosdk.anki.com/docs/generated/cozmo.objects.html#cozmo.objects.LightCube.set_lights)
+*parameters:*
+- `object-id`: `int`
+- `color`: `str`
+
+Change the color of the specified light cube to the given color. The object-id parameter indicates which object to change the color of, and obviously must belong to a light cube. The light cube must be in Cozmo's line of sight (and thus on the input-link). The available colors are red, green, blue, brown, yellow, orange, purple, teal, white, and off.
+
 
 #### [move-lift](http://cozmosdk.anki.com/docs/generated/cozmo.robot.html#cozmo.robot.Robot.set_lift_height)
 *parameters:*
@@ -181,8 +239,9 @@ Moves Cozmo's lift to the specified height. The height is given as a a float in 
 #### [go-to-object](http://cozmosdk.anki.com/docs/generated/cozmo.robot.html#cozmo.robot.Robot.go_to_object)
 *parameters:*
 - `object-id`: `int`
+- `distance`: `int`
 
-Instructs Cozmo to move itself to the object with the specified object ID. The object id must be one that Cozmo can currently see. Cozmo will stop once its center is 100mm from the object's.
+Instructs Cozmo to move itself to the object with the specified object ID, stopping the specified distance in front of the object. The object id must be one that Cozmo can currently see. Cozmo itself is about 60mm, so it's unadvisable to approach closer than that. This action will only work if the specified object-id belongs to a light cube that came with Cozmo, custom objects *do not work*.
 
 #### [set-backpack-lights](http://cozmosdk.anki.com/docs/generated/cozmo.robot.html#cozmo.robot.Robot.set_all_backpack_lights)
 *parameters:*
@@ -231,7 +290,7 @@ Instructs Cozmo to approach a cube and dock with it, so that the lift hooks are 
 *parameters:*
 - `angle`: `float`
 
-Intstructs Cozmo to move its head to the specified angle, where the angle is in radians and relative to looking straight ahead. The angle should be in the range  [-0.44, 0.78], where -0.44 is looking as far down as possible, and 0.78 is looking as far up as possible.
+Intstructs Cozmo to move its head to the specified angle, where the angle is in degrees and relative to looking straight ahead. The angle should be in the range  [-0.44, 0.78], where -0.44 is looking as far down as possible, and 0.78 is looking as far up as possible.
 
 ## Future Work
 * Currently, if the agent sends a command to the Cozmo, the Soar cycle pauses until the Cozmo is completely done with the action. It'd be nice if Soar could continue to run while Cozmo is executing an action.

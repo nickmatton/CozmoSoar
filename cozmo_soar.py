@@ -1,12 +1,14 @@
-from time import sleep
+from time import sleep, time
+import xml.etree.ElementTree as ET
 
 import PySoarLib as psl
 import soar.Python_sml_ClientInterface as sml
+import navmap_utils as nu
 
 import cozmo
-from cozmo.util import radians, degrees, distance_mm, speed_mmps
-
+from cozmo.util import degrees, distance_mm, speed_mmps
 from c_soar_util import *
+from map import Map
 
 
 class CozmoSoar(psl.AgentConnector):
@@ -19,8 +21,7 @@ class CozmoSoar(psl.AgentConnector):
     the Cozmo robot with Soar by updating the appropriate input link attributes and interpreting
     the resulting output link commands.
     """
-
-    def __init__(self, agent: psl.SoarAgent, robot: cozmo.robot):
+    def __init__(self, agent: psl.SoarAgent, robot: cozmo.robot, object_file=None):
         """
         Create an instance of the `CozmoSoar` class connecting the agent to the robot.
 
@@ -33,13 +34,23 @@ class CozmoSoar(psl.AgentConnector):
         self.robot = self.r = robot
         self.world = self.w = self.r.world
 
+        self.map = None
+
+        if object_file:
+            self.custom_objects = define_custom_objects_from_file(self.world, object_file)
+
+        self.start_time = time()
+
         self.cam = self.r.camera
         self.cam.image_stream_enabled = True
         self.r.enable_facial_expression_estimation()
 
         self.objects = {}
         self.faces = {}
-
+        self.actions = []
+        self.w.request_nav_memory_map(.5)
+        self.svs_buffer = {}
+    
         #######################
         # Working Memory data #
         #######################
@@ -53,7 +64,7 @@ class CozmoSoar(psl.AgentConnector):
             "carrying-object-id": lambda: self.r.carrying_object_id,
             "charging": lambda: int(self.r.is_charging),
             "cliff-detected": lambda: int(self.r.is_cliff_detected),
-            "head-angle": lambda: self.r.head_angle.radians,
+            "head-angle": lambda: self.r.head_angle.degrees,
             "face-count": self.w.visible_face_count,
             "object-count": lambda: len(self.objects),
             "picked-up": lambda: int(self.r.is_picked_up),
@@ -66,7 +77,7 @@ class CozmoSoar(psl.AgentConnector):
                 "z": lambda: self.r.pose.position.z,
             },
             "lift": {
-                "angle": lambda: self.r.lift_angle.radians,
+                "angle": lambda: self.r.lift_angle.degrees,
                 "height": lambda: self.r.lift_height.distance_mm,
                 "ratio": lambda: self.r.lift_ratio,
             },
@@ -82,17 +93,233 @@ class CozmoSoar(psl.AgentConnector):
         ###############################
         self.command_map = {
             "move-lift": self.__handle_move_lift,
-            "go-to-object": self.__handle_go_to_object,
             "move-head": self.__handle_move_head,
+            "go-to-object": self.__handle_go_to_object,
             "turn-to-face": self.__handle_turn_to_face,
-            "set-backpack-lights": self.__handle_set_backpack_lights,
             "drive-forward": self.__handle_drive_forward,
             "turn-in-place": self.__handle_turn_in_place,
             "pick-up-object": self.__handle_pick_up_object,
-            "place-object-down": self.__handle_place_object_down,
-            "place-on-object": self.__handle_place_on_object,
             "dock-with-cube": self.__handle_dock_with_cube,
+            "place-on-object": self.__handle_place_on_object,
+            "place-object-down": self.__handle_place_object_down,
+            "change-block-color": self.__handle_change_block_color,
+            "set-backpack-lights": self.__handle_set_backpack_lights,
+            "init-map": self.__handle_init_map,
+            "update-cozmo-on-map": self.__handle_update_cozmo_on_map,
+            "add-cube-to-map": self.__handle_add_cube_to_map,
+            "add-waypoint-to-map": self.__handle_add_waypoint_to_map,
+            "add-path-to-map": self.__handle_add_path_to_map,
+            "add-wall-to-map": self.__handle_add_wall_to_map,
+            "change-cube-color-on-map": self.__handle_change_cube_color_on_map
         }
+
+    ##############################################################
+    #################    Start Map Commands    ###################
+    ##############################################################
+
+    def __handle_init_map(self, command: sml.Identifier):
+        print("intializing map")
+        self.map = Map()
+
+        status_wme = psl.SoarWME("status", "completed")
+        status_wme.add_to_wm(command)
+        status_wme.update_wm()
+        return None, status_wme
+
+    def __handle_update_cozmo_on_map(self, command: sml.Identifier):
+        print("updating cozmo on map")
+
+        try:
+            x = int(command.GetParameterValue("x"))
+        except ValueError as e:
+            print(
+                "Invalid x format {}".format(command.GetParameterValue("x"))
+            )
+            return False
+
+        try:
+            y = int(command.GetParameterValue("y"))
+        except ValueError as e:
+            print(
+                "Invalid y format {}".format(command.GetParameterValue("y"))
+            )
+            return False
+
+        self.map.updateCozmo(x, y)
+
+        status_wme = psl.SoarWME("status", "completed")
+        status_wme.add_to_wm(command)
+        status_wme.update_wm()
+
+        return None, status_wme
+
+    def __handle_add_cube_to_map(self, command: sml.Identifier):
+        print("adding cube to map")
+
+        try:
+            x = int(command.GetParameterValue("x"))
+        except ValueError as e:
+            print(
+                "Invalid x format {}".format(command.GetParameterValue("x"))
+            )
+            return False
+
+        try:
+            y = int(command.GetParameterValue("y"))
+        except ValueError as e:
+            print(
+                "Invalid y format {}".format(command.GetParameterValue("y"))
+            )
+            return False
+        try:
+            object_id = int(command.GetParameterValue("object-id"))
+        except ValueError as e:
+            print(
+                "Invalid object-id format {}".format(command.GetParameterValue("object-id"))
+            )
+            return False
+
+        self.map.addCube(x, y, object_id)
+
+        status_wme = psl.SoarWME("status", "completed")
+        status_wme.add_to_wm(command)
+        status_wme.update_wm()
+
+        return None, status_wme
+
+    def __handle_add_waypoint_to_map(self, command: sml.Identifier):
+        print("adding waypoint to map")
+
+        try:
+            x = int(command.GetParameterValue("x"))
+        except ValueError as e:
+            print(
+                "Invalid x format {}".format(command.GetParameterValue("x"))
+            )
+            return False
+
+        try:
+            y = int(command.GetParameterValue("y"))
+        except ValueError as e:
+            print(
+                "Invalid y format {}".format(command.GetParameterValue("y"))
+            )
+            return False
+        try:
+            object_id = int(command.GetParameterValue("object-id"))
+        except ValueError as e:
+            print(
+                "Invalid object-id format {}".format(command.GetParameterValue("object-id"))
+            )
+            return False
+
+        self.map.addWaypoint(x, y, object_id)
+
+        status_wme = psl.SoarWME("status", "completed")
+        status_wme.add_to_wm(command)
+        status_wme.update_wm()
+
+        return None, status_wme
+
+    def __handle_add_path_to_map(self, command: sml.Identifier):
+
+        try:
+            object_id = int(command.GetParameterValue("object-id"))
+        except ValueError as e:
+            print(
+                "Invalid object-id format {}".format(command.GetParameterValue("object-id"))
+            )
+            return False
+
+        self.map.addPath(object_id)
+
+        status_wme = psl.SoarWME("status", "completed")
+        status_wme.add_to_wm(command)
+        status_wme.update_wm()
+
+        return None, status_wme
+
+    def __handle_add_wall_to_map(self, command: sml.Identifier):
+        try:
+            x = int(command.GetParameterValue("x"))
+        except ValueError as e:
+            print(
+                "Invalid x format {}".format(command.GetParameterValue("x"))
+            )
+            return False
+
+        try:
+            y = int(command.GetParameterValue("y"))
+        except ValueError as e:
+            print(
+                "Invalid y format {}".format(command.GetParameterValue("y"))
+            )
+            return False
+        try:
+            width = int(command.GetParameterValue("width"))
+        except ValueError as e:
+            print(
+                "Invalid width format {}".format(command.GetParameterValue("width"))
+            )
+            return False
+        try:
+            depth = int(command.GetParameterValue("depth"))
+        except ValueError as e:
+            print(
+                "Invalid depth format {}".format(command.GetParameterValue("depth"))
+            )
+            return False
+        try:
+            angle = float(command.GetParameterValue("angle"))
+        except ValueError as e:
+            print(
+                "Invalid angle format {}".format(command.GetParameterValue("angle"))
+            )
+            return False
+        try:
+            object_id = int(command.GetParameterValue("object-id"))
+        except ValueError as e:
+            print(
+                "Invalid object-id format {}".format(command.GetParameterValue("object-id"))
+            )
+            return False
+
+        self.map.addWall(x, y, width, depth, angle, object_id)
+
+        status_wme = psl.SoarWME("status", "completed")
+        status_wme.add_to_wm(command)
+        status_wme.update_wm()
+
+        return None, status_wme
+
+    def __handle_change_cube_color_on_map(self, command: sml.Identifier):
+        try:
+            object_id = int(command.GetParameterValue("object-id"))
+        except ValueError as e:
+            print(
+                "Invalid object-id format {}".format(command.GetParameterValue("object-id"))
+            )
+            return False
+
+        try:
+            color = str(command.GetParameterValue("color"))
+        except ValueError as e:
+            print(
+                "Invalid object-id format {}".format(command.GetParameterValue("color"))
+            )
+            return False
+
+        self.map.changeCubeColor(object_id, color)
+
+        status_wme = psl.SoarWME("status", "completed")
+        status_wme.add_to_wm(command)
+        status_wme.update_wm()
+
+        return None, status_wme
+
+    ##############################################################
+    ##################    End Map Commands    ####################
+    ##############################################################
 
     def on_output_event(self, command_name: str, root_id: sml.Identifier):
         """
@@ -110,7 +337,13 @@ class CozmoSoar(psl.AgentConnector):
             command_name,
             [root_id.GetChild(c) for c in range(root_id.GetNumberChildren())],
         )
-        self.command_map[command_name](root_id)
+        results = self.command_map[command_name](root_id)
+        if not results:
+            print("Error execcuting command")
+        else:
+            action, status_wme = results
+            # print(action)
+            self.actions.append((action, status_wme, root_id))
 
     def __handle_place_object_down(self, command: sml.Identifier):
         """
@@ -124,15 +357,12 @@ class CozmoSoar(psl.AgentConnector):
         :return: True if successful, False otherwise
         """
         print("Placing object down")
-        place_object_down_action = self.r.place_object_on_ground_here(0)
+        place_object_down_action = self.r.place_object_on_ground_here(0, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        place_object_down_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return place_object_down_action.failure_reason
+        return place_object_down_action, status_wme
 
     def __handle_place_on_object(self, command: sml.Identifier):
         """
@@ -165,15 +395,12 @@ class CozmoSoar(psl.AgentConnector):
 
         print("Placing held object on top of {}".format(target_dsg))
         target_obj = self.objects[target_dsg]
-        place_on_object_action = self.robot.place_on_object(target_obj)
+        place_on_object_action = self.robot.place_on_object(target_obj, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        place_on_object_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return place_on_object_action.failure_reason
+        return place_on_object_action, status_wme
 
     def __handle_dock_with_cube(self, command: sml.Identifier):
         """
@@ -190,6 +417,7 @@ class CozmoSoar(psl.AgentConnector):
         """
         try:
             target_id = int(command.GetParameterValue("object-id"))
+            target_id = "obj{}".format(target_id)
         except ValueError as e:
             print(
                 "Invalid target-object-id format {}".format(command.GetParameterValue("object-id"))
@@ -201,15 +429,12 @@ class CozmoSoar(psl.AgentConnector):
 
         print("Docking with cube with object id {}".format(target_id))
         target_obj = self.objects[target_id]
-        dock_with_cube_action = self.robot.dock_with_cube(target_obj)
+        dock_with_cube_action = self.robot.dock_with_cube(target_obj, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        dock_with_cube_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return dock_with_cube_action.failure_reason
+        return dock_with_cube_action, status_wme
 
     def __handle_pick_up_object(self, command: sml.Identifier):
         """
@@ -238,15 +463,12 @@ class CozmoSoar(psl.AgentConnector):
 
         print("Picking up object {}".format(obj_designation))
         target_obj = self.objects[obj_designation]
-        pick_up_object_action = self.robot.pickup_object(target_obj)
+        pick_up_object_action = self.robot.pickup_object(target_obj, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        pick_up_object_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return pick_up_object_action.failure_reason
+        return pick_up_object_action, status_wme
 
     def __handle_turn_to_face(self, command: sml.Identifier):
         """
@@ -271,15 +493,12 @@ class CozmoSoar(psl.AgentConnector):
 
         print("Turning to face {}".format(fid))
         target_face = self.faces[fid]
-        turn_towards_face_action = self.r.turn_towards_face(target_face)
+        turn_towards_face_action = self.r.turn_towards_face(target_face, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        turn_towards_face_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return turn_towards_face_action.failure_reason
+        return turn_towards_face_action, status_wme
 
     def __handle_move_lift(self, command: sml.Identifier):
         """
@@ -301,15 +520,12 @@ class CozmoSoar(psl.AgentConnector):
             return False
 
         print("Moving lift {}".format(height))
-        set_lift_height_action = self.robot.set_lift_height(height)
+        set_lift_height_action = self.robot.set_lift_height(height, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        set_lift_height_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return set_lift_height_action.failure_reason
+        return set_lift_height_action, status_wme
 
     def __handle_move_head(self, command: sml.Identifier):
         """
@@ -319,7 +535,7 @@ class CozmoSoar(psl.AgentConnector):
         (I3 ^move-head Vx)
           (Vx ^angle [ang])
         where [ang] is a real number in the range [-0.44, 0.78]. This command moves the head to the
-        the given angle, where 0 is looking straight ahead and the angle is radians from that
+        the given angle, where 0 is looking straight ahead and the angle is degrees from that
         position.
 
         :param command: Soar command object
@@ -332,15 +548,12 @@ class CozmoSoar(psl.AgentConnector):
             return False
 
         print("Moving head {}".format(angle))
-        set_head_angle_action = self.robot.set_head_angle(radians(angle))
+        set_head_angle_action = self.robot.set_head_angle(degrees(angle), in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        set_head_angle_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return set_head_angle_action.failure_reason
+        return set_head_angle_action, status_wme
 
     def __handle_go_to_object(self, command: sml.Identifier):
         """
@@ -348,14 +561,17 @@ class CozmoSoar(psl.AgentConnector):
 
         The Sour output should look like:
         (I3 ^go-to-object Vx)
-          (Vx ^object-id [id])
-        where [id] is the object id of the object to go to. Cozmo will stop 150mm from the object.
+          (Vx ^object-id [id]
+              ^distance [dist])
+        where [id] is the object id of the object to go to and [dist] indicates
+        how far to stop from the object in mm. Only works on LightCubes.
 
         :param command: Soar command object
         :return: True if successful, False otherwise
         """
         try:
             target_id = int(command.GetParameterValue("object-id"))
+            target_id = f"obj{target_id}"
         except ValueError as e:
             print(
                 "Invalid target-object-id format {}".format(
@@ -367,17 +583,20 @@ class CozmoSoar(psl.AgentConnector):
             print("Couldn't find target object")
             return False
 
+        try:
+            distance = distance_mm(float(command.GetParameterValue("distance")))
+        except ValueError as e:
+            print("Invalid distance format {}".format(command.GetParameterValue("distance")))
+            return False
+
         print("Going to object {}".format(target_id))
         target_obj = self.objects[target_id]
-        go_to_object_action = self.robot.go_to_object(target_obj, distance_mm(100))
+        go_to_object_action = self.robot.go_to_object(target_obj, distance, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        go_to_object_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return go_to_object_action.failure_reason
+        return go_to_object_action, status_wme
 
     def __handle_set_backpack_lights(self, command: sml.Identifier):
         """
@@ -437,15 +656,12 @@ class CozmoSoar(psl.AgentConnector):
             return False
 
         print("Driving forward {}mm at {}mm/s".format(distance.distance_mm, speed.speed_mmps))
-        drive_forward_action = self.r.drive_straight(distance, speed)
+        drive_forward_action = self.r.drive_straight(distance, speed, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        drive_forward_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return drive_forward_action.failure_reason
+        return drive_forward_action, status_wme
 
     def __handle_turn_in_place(self, command: sml.Identifier):
         """
@@ -473,15 +689,59 @@ class CozmoSoar(psl.AgentConnector):
             return False
 
         print("Rotating in place {} degrees at {}deg/s".format(angle.degrees, speed.degrees))
-        turn_in_place_action = self.r.turn_in_place(angle=angle, speed=speed)
+        turn_in_place_action = self.r.turn_in_place(angle=angle, speed=speed, in_parallel=True)
         status_wme = psl.SoarWME("status", "running")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        turn_in_place_action.wait_for_completed()
-        status_wme.set_value("complete")
-        status_wme.update_wm()
 
-        return turn_in_place_action.failure_reason
+        return turn_in_place_action, status_wme
+
+    def __handle_change_block_color(self, command: sml.Identifier):
+        """
+        Handle a Soar change-block-color command.
+
+        The Soar output should look like:
+        (I3 ^change-block-color Vx)
+            (Vx ^color [str]
+                ^object-id [id])
+        where color is the color name to change to from the valid colors and id
+        is the object-id of the cube which should have its color changed.
+
+        :param command: Soar command object
+        :return: True if successful, False otherwise
+        """
+        try:
+            target_id = int(command.GetParameterValue("object-id"))
+        except ValueError as e:
+            #TODO: Update action WME to have failure codes
+            print("Invalid object-id format, must be int")
+            return False
+        if f"obj{target_id}" not in self.objects.keys():
+            #TODO: Update action WME to have failure codes
+            print(f"Invalid object-id {target_id}, can't find it")
+            return False
+
+        color = command.GetParameterValue("color").lower()
+        if color not in COLORS:
+            print(f"Invalid color choice: {color}")
+            status_wme = psl.SoarWME("status", "failed")
+            fail_code_wme = psl.SoarWME("failure-code", "invalid-color")
+            fail_reason_wme = psl.SoarWME("failure-reason", "invalid-color: {}".format(color))
+            status_wme.add_to_wm(command)
+            fail_code_wme.add_to_wm(command)
+            fail_reason_wme.add_to_wm(command)
+            status_wme.update_wm()
+            return False
+
+        print(f"Changing object {target_id} to color {color}")
+        target_block = self.objects[f"obj{target_id}"]
+        print("Target object: {}".format(target_block.cube_id))
+        target_block.set_lights_off()
+        target_block.set_lights(LIGHTS_DICT[color])
+        status_wme = psl.SoarWME("status", "complete")
+        status_wme.add_to_wm(command)
+        status_wme.update_wm()
+        return (None, None)
 
     def on_input_phase(self, input_link: sml.Identifier):
         """
@@ -586,6 +846,67 @@ class CozmoSoar(psl.AgentConnector):
                 else:
                     raise Exception("WME wasn't of proper type")
 
+        # Finally, we want to check all our on-going actions and handle them appropriately:
+        # Actions are by default on the output link and have a `status` attribute already,
+        # we just need to update that status if needed
+        for action, status_wme, root_id in self.actions:
+            if action is None and status_wme is None:
+                self.actions.remove((action, status_wme, root_id))
+                continue
+            if action.is_completed:
+                state = "complete" if action.has_succeeded else "failed"
+                failure_reason = action.failure_reason
+
+                status_wme.set_value(state)
+                if failure_reason != (None, None):
+                    code_wme = psl.SoarWME("failure-code", failure_reason[0])
+                    reason_wme = psl.SoarWME("failure-reason", failure_reason[1])
+                    code_wme.add_to_wm(root_id)
+                    code_wme.update_wm()
+                    reason_wme.add_to_wm(root_id)
+                    reason_wme.update_wm()
+                status_wme.update_wm()
+                self.actions.remove((action, status_wme, root_id))
+
+        #######
+        # SVS #
+        #######
+        # create and populate lists to add, delete, and change elements in SVS
+        navmap = self.w.__dict__['_objects']
+        buff = self.svs_buffer
+        change_list = []
+        add_list = []
+        tag_list = [] # used for is_visible tags
+        
+        # loop through navmap items checking for changes / additions and add to lists to be processed
+        for _, val in navmap.items():
+            oid = val.object_id
+            if not nu.block_init(val):
+                if oid in buff:
+                    if not nu.blocks_equal(val, buff[oid]):
+                        change_list.append(val)
+                        if val.is_visible is not buff[oid].is_visible:
+                            tag_list.append(f'tag change {oid} is_visible {str(val.is_visible).lower()}')
+                        buff[oid] = nu.deepcopy(val)
+                else:
+                    if val.is_visible:
+                        add_list.append(val)
+                        tag_list.append(f'tag add {oid} is_visible true')
+                        buff[oid] = nu.deepcopy(val)
+        
+        def send_svs_input(svs_in):
+            print('\nSending SVS input: ', svs_in)
+            self.agent.agent.SendSVSInput(svs_in)
+
+        for obj in change_list:
+            change_input = nu.get_obj_str(obj, 'change')
+            send_svs_input(change_input)
+        for obj in add_list:
+            add_input = nu.get_obj_str(obj, 'add')
+            send_svs_input(add_input)
+        for tag in tag_list:
+            send_svs_input(tag)
+
     def __build_obj_wme_subtree(self, obj, obj_designation, obj_wme):
         """
         Build a working memory sub-tree for a given perceived object
@@ -599,7 +920,6 @@ class CozmoSoar(psl.AgentConnector):
             "object-id": obj.object_id,
             "descriptive-name": obj.descriptive_name,
             "liftable": int(obj.pickupable),
-            "type": "object",
             "pose": {
                 "rot": lambda: obj.pose.rotation.angle_z.degrees,
                 "x": lambda: obj.pose.position.x,
@@ -608,11 +928,25 @@ class CozmoSoar(psl.AgentConnector):
             }
         }
         if isinstance(obj, cozmo.objects.LightCube):
-            obj_input_dict["type"] = "cube"
+            obj_input_dict["type"] = "led-cube"
             obj_input_dict["connected"] = obj.is_connected
             obj_input_dict["cube-id"] = obj.cube_id
             obj_input_dict["moving"] = obj.is_moving
-
+            obj_input_dict["last-tapped"] = obj.last_tapped_time - self.start_time\
+                                            if obj.last_tapped_time is not None else -1.0
+            obj_input_dict["name"] = LIGHT_CUBE_NAMES[obj.cube_id]
+        elif isinstance(obj, cozmo.objects.Charger):
+            #TODO: Handle seeing the charger
+            pass
+        else:
+            cozmo_obj_type = obj.object_type
+            temp_arr = cozmo_obj_type.name.split("-")
+            obj_type = temp_arr[0]
+            
+            # fix for names including '-'
+            obj_name = ''.join(temp_arr[1:])
+            obj_input_dict["type"] = obj_type
+            obj_input_dict["name"] = obj_name
         for input_name in obj_input_dict.keys():
             new_val = obj_input_dict[input_name]
             wme = self.WMEs.get(obj_designation + "." + input_name)
@@ -724,3 +1058,93 @@ class SoarObserver(psl.AgentConnector):
         self.agent.execute_command("print --depth 3 i2")
         print("Output link:")
         self.agent.execute_command("print --depth 4 i3")
+
+
+def define_custom_objects_from_file(world: cozmo.world.World, filename: str):
+    # define a unique cube (44mm x 44mm x 44mm) (approximately the same size as a light cube)
+    # with a 30mm x 30mm Diamonds2 image on every face
+    # cube_obj = world.define_custom_cube(CustomObjectTypes.CustomType00,
+    #                                           CustomObjectMarkers.Diamonds2,
+    #                                           44,
+    #                                           30, 30, True)
+
+    # define a unique cube (88mm x 88mm x 88mm) (approximately 2x the size of a light cube)
+    # with a 50mm x 50mm Diamonds3 image on every face
+    # big_cube_obj = world.define_custom_cube(CustomObjectTypes.CustomType01,
+    #                                           CustomObjectMarkers.Diamonds3,
+    #                                           88,
+    #                                           50, 50, True)
+
+
+    # define a unique box (60mm deep x 140mm width x100mm tall)
+    # with a different 30mm x 50mm image on each of the 6 faces
+    # box_obj = world.define_custom_box(cust_type('box', 'box'),
+    #                                         CustomObjectMarkers.Hexagons2,  # front
+    #                                         CustomObjectMarkers.Circles3,   # back
+    #                                         CustomObjectMarkers.Circles4,   # top
+    #                                         CustomObjectMarkers.Circles5,   # bottom
+    #                                         CustomObjectMarkers.Triangles4, # left
+    #                                         CustomObjectMarkers.Triangles3, # right
+    #                                         60, 140, 100,
+    #                                         30, 50, True)
+    obj_tree = ET.parse(filename)
+    obj_root = obj_tree.getroot()
+    custom_objects = []
+    
+    # find attribute.text from node n
+    def f(n, attr):
+        return n.find(attr).text
+    
+    for obj_node in obj_root:
+        obj_type = obj_node.tag
+        obj_unique = True if obj_node.attrib['unique'] == "true" else False
+        obj_name = f(obj_node, 'name')
+        obj_marker = f(obj_node, 'marker')
+        obj_marker_node = obj_node.find('marker')
+        obj_marker_height = int(obj_marker_node.attrib['height'])
+        obj_marker_width = int(obj_marker_node.attrib['width'])
+        cozmo_object_type = custom_object_type_factory(obj_type, obj_name)
+        
+        if obj_type == "cube":
+            obj_size = int(f(obj_node, 'size'))
+            custom_object = world.define_custom_cube(
+                custom_object_type=cozmo_object_type,
+                marker=MARKER_DICT[obj_marker],
+                size_mm=obj_size,
+                marker_width_mm=obj_marker_width,
+                marker_height_mm=obj_marker_height,
+                is_unique=obj_unique)
+            custom_objects.append(custom_object)
+        
+        # wall or box
+        else:
+            obj_width = int(f(obj_node, 'width'))
+            obj_height = int(f(obj_node, 'height'))
+
+            if obj_type == "wall":
+                custom_object = world.define_custom_wall(
+                    custom_object_type=cozmo_object_type,
+                    marker=MARKER_DICT[obj_marker],
+                    width_mm=obj_width,
+                    height_mm=obj_height,
+                    marker_width_mm=obj_marker_width,
+                    marker_height_mm=obj_marker_height,
+                    is_unique=obj_unique)
+                custom_object.name = obj_name
+                custom_objects.append(custom_object)
+            
+            if obj_type == "box":
+                obj_depth = int(f(obj_node, 'depth'))
+                mh = lambda node, loc: MARKER_DICT[f(node, f'marker-{loc}')]
+                custom_object = world.define_custom_box(cozmo_object_type,
+                    mh(obj_node, 'front'),
+                    mh(obj_node, 'back'),
+                    mh(obj_node, 'top'),
+                    mh(obj_node, 'bottom'),
+                    mh(obj_node, 'left'),
+                    mh(obj_node, 'right'),
+                    obj_depth, obj_width, obj_height,
+                    obj_marker_height, obj_marker_width, obj_unique)
+                custom_object.name = obj_name
+                custom_objects.append(custom_object)
+    return custom_objects
