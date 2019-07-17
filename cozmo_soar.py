@@ -124,7 +124,7 @@ class CozmoSoar(psl.AgentConnector):
         status_wme = psl.SoarWME("status", "completed")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
-        return None, status_wme
+        return None, None
 
     def __handle_update_cozmo_on_map(self, command: sml.Identifier):
         print("updating cozmo on map")
@@ -151,7 +151,7 @@ class CozmoSoar(psl.AgentConnector):
         status_wme.add_to_wm(command)
         status_wme.update_wm()
 
-        return None, status_wme
+        return None, None
 
     def __handle_add_cube_to_map(self, command: sml.Identifier):
         print("adding cube to map")
@@ -185,8 +185,7 @@ class CozmoSoar(psl.AgentConnector):
         status_wme.add_to_wm(command)
         status_wme.update_wm()
 
-        return None, status_wme
-
+        return None, None
     def __handle_add_waypoint_to_map(self, command: sml.Identifier):
         print("adding waypoint to map")
 
@@ -219,7 +218,7 @@ class CozmoSoar(psl.AgentConnector):
         status_wme.add_to_wm(command)
         status_wme.update_wm()
 
-        return None, status_wme
+        return None, None
 
     def __handle_add_path_to_map(self, command: sml.Identifier):
 
@@ -237,7 +236,7 @@ class CozmoSoar(psl.AgentConnector):
         status_wme.add_to_wm(command)
         status_wme.update_wm()
 
-        return None, status_wme
+        return None, None
 
     def __handle_add_wall_to_map(self, command: sml.Identifier):
         try:
@@ -290,7 +289,7 @@ class CozmoSoar(psl.AgentConnector):
         status_wme.add_to_wm(command)
         status_wme.update_wm()
 
-        return None, status_wme
+        return None, None
 
     def __handle_change_cube_color_on_map(self, command: sml.Identifier):
         try:
@@ -315,7 +314,7 @@ class CozmoSoar(psl.AgentConnector):
         status_wme.add_to_wm(command)
         status_wme.update_wm()
 
-        return None, status_wme
+        return None, None
 
     ##############################################################
     ##################    End Map Commands    ####################
@@ -738,6 +737,11 @@ class CozmoSoar(psl.AgentConnector):
         print("Target object: {}".format(target_block.cube_id))
         target_block.set_lights_off()
         target_block.set_lights(LIGHTS_DICT[color])
+
+        if self.map:
+            self.map.changeCubeColor(target_id, color)
+            self.map.master.update()
+
         status_wme = psl.SoarWME("status", "complete")
         status_wme.add_to_wm(command)
         status_wme.update_wm()
@@ -898,14 +902,61 @@ class CozmoSoar(psl.AgentConnector):
             print('\nSending SVS input: ', svs_in)
             self.agent.agent.SendSVSInput(svs_in)
 
+
+        def handleChange(verts, oid):
+            if(self.map):
+                print("************change*************")
+                if self.map:
+                    self.map.addSvsObject(oid, verts)
+                    self.map.master.update()
+
+
+                print("*******************************")
+            return
+
+        def handleAdd(verts, oid):
+            if(self.map):
+                print("*************add**************")
+
+                if self.map:
+                    self.map.addSvsObject(oid,verts)
+                    self.map.master.update()
+
+
+                # print(add_obj)
+                # print()
+                # print(add_obj.pose.position)
+                # print(add_obj.pose.rotation)
+                # print(add_obj.object_id)
+                # print(add_obj.pose.rotation.q2)
+                print("******************************")
+            return
+
+        if self.map:
+            print("pose:")
+            print(self.r.pose.position.x)
+            print(self.r.pose.position.y)
+            print("--------------------")
+            print(self.r.pose_angle.radians)
+            self.map.updateCozmo(self.r.pose.position.x, self.r.pose.position.y, float(self.r.pose_angle.radians))
+            self.map.master.update()
+
         for obj in change_list:
-            change_input = nu.get_obj_str(obj, 'change')
+            change_input, vertices, oid = nu.get_obj_str(obj, 'change')
+            handleChange(vertices, oid)
             send_svs_input(change_input)
         for obj in add_list:
-            add_input = nu.get_obj_str(obj, 'add')
+            add_input, vertices, oid = nu.get_obj_str(obj, 'add')
+            handleAdd(vertices, oid)
             send_svs_input(add_input)
+
         for tag in tag_list:
             send_svs_input(tag)
+
+        # handleChange(change_list)
+        # handleAdd(add_list)
+
+
 
     def __build_obj_wme_subtree(self, obj, obj_designation, obj_wme):
         """

@@ -1,0 +1,152 @@
+sp {p*init
+	(state <s> ^superstate nil)
+	-(<s> ^name map-test)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name init-map)
+}
+
+sp {a*init
+	(<s> ^io.output-link <out>)
+	(<s> ^operator.name init-map)
+-->
+	(<s> ^name map-test)
+	(<out> ^init-map <a>)
+	(<s> ^stage UC)
+}
+
+sp {p*UC
+	(state <s> ^name map-test
+				^stage UC)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name UC)
+
+}
+
+sp {a*UC
+ 	(state <s> ^operator <o>
+ 				^io.output-link <out>)
+ 	(<o> ^name UC)
+ -->
+ 	(<out> ^update-cozmo-on-map <u>)
+ 	(<u> ^x 100
+ 		 ^y 100)
+ 	(<s> ^stage UC -)
+ 	(<s> ^stage AddCube)
+}
+
+sp {p*AddCube
+	(state <s> ^name map-test
+				^stage AddCube)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name AddCube)
+
+}
+
+sp {a*AddCube
+ 	(state <s> ^operator <o>
+ 				^io.output-link <out>)
+ 	(<o> ^name AddCube)
+ -->
+ 	(<out> ^add-cube-to-map <u>)
+ 	(<u> ^x 100
+ 		 ^y 50
+ 		 ^object-id 0)
+ 	(<s> ^stage AddCube -)
+ 	(<s> ^stage AddWall)
+}
+
+sp {p*AddWall
+	(state <s> ^name map-test
+				^stage AddWall)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name AddWall)
+
+}
+
+sp {a*AddWall
+ 	(state <s> ^operator <o>
+ 				^io.output-link <out>)
+ 	(<o> ^name AddWall)
+ -->
+ 	(<out> ^add-wall-to-map <u>)
+ 	(<u> ^x 130
+ 		 ^y 130
+ 		 ^width 50
+ 		 ^depth 5
+ 		 ^angle -.78
+ 		 ^object-id 100)
+ 	(<s> ^stage AddWall -)
+ 	(<s> ^stage AddWaypoint)
+}
+
+sp {p*AddWaypoint
+	(state <s> ^name map-test
+				^stage AddWaypoint)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name AddWaypoint)
+
+}
+
+sp {a*AddWaypoint
+ 	(state <s> ^operator <o>
+ 				^io.output-link <out>)
+ 	(<o> ^name AddWaypoint)
+ -->
+ 	(<out> ^add-waypoint-to-map <u>)
+ 	(<u> ^x 0
+ 		 ^y -100
+ 		 ^object-id 50)
+ 	(<s> ^stage AddWaypoint -)
+ 	(<s> ^stage AddPath)
+}
+
+sp {p*AddPath
+	(state <s> ^name map-test
+				^stage AddPath)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name AddPath)
+
+}
+
+sp {a*AddPath
+ 	(state <s> ^operator <o>
+ 				^io.output-link <out>)
+ 	(<o> ^name AddPath)
+ -->
+ 	(<out> ^add-path-to-map <u>)
+ 	(<u>  ^object-id 50)
+ 	(<s> ^stage AddPath -)
+ 	(<s> ^stage ChangeColor)
+}
+
+sp {p*ChangeColor
+	(state <s> ^name map-test
+				^stage ChangeColor)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name ChangeColor)
+
+}
+
+sp {a*ChangeColor
+ 	(state <s> ^operator <o>
+ 				^io.output-link <out>)
+ 	(<o> ^name ChangeColor)
+ -->
+ 	(<out> ^change-cube-color-on-map <u>)
+ 	(<u>  ^object-id 0
+ 		  ^color blue)
+ 	(<s> ^stage ChangeColor -)
+ 	(<s> ^stage done)
+}
+
+
+
+
+

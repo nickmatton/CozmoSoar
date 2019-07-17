@@ -1,0 +1,88 @@
+sp {p*init
+	(state <s> ^superstate nil)
+	-(<s> ^name map-test)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name init-map)
+}
+
+sp {a*init
+	(<s> ^io.output-link <out>)
+	(<s> ^operator.name init-map)
+-->
+	(<s> ^name map-test)
+	(<out> ^init-map <a>
+            ^move-head <h>
+            ^move-lift <l>)
+	(<s> ^stage TP)
+    (<h> ^angle 0)
+    (<l> ^height 0)
+}
+
+sp {p*TP
+    (<s> ^name map-test
+        ^stage TP)
+-->
+    (<s> ^operator <o> +)
+    (<o> ^name TP)
+
+}
+
+sp {a*TP
+    (state <s> ^operator <o>
+                ^io.output-link <out>)
+    (<o> ^name TP)
+-->
+    (<out> ^turn-in-place <t>)
+    (<t> ^angle 90
+        ^speed 30)
+    (<s> ^stage TP -)
+    (<s> ^stage WAIT)
+}
+
+sp {p*wait
+    (state <s> ^name map-test
+		^stage WAIT)
+-->
+    (<s> ^operator <o> +)
+    (<o> ^name WAIT)	
+}
+
+sp {a*wait
+    (state <s> ^operator <o>)
+    (<o> ^name WAIT)
+-->
+    (<s> ^stage WAIT -)
+    (<s> ^stage CBC)
+}
+
+
+sp {p*CBC
+    (state <s> ^name map-test
+                ^stage CBC)
+-->
+    (<s> ^operator <o> +)
+    (<o> ^name CBC)
+
+}
+
+sp {a*CBC
+    (state <s> ^operator <o>
+                ^io.output-link <out>
+                ^io.input-link <in>)
+    (<in> ^object.object-id <id>)
+    (<o> ^name CBC)
+-->
+    (<out> ^change-block-color <c>)
+    (<c> ^object-id <id>
+        ^color blue)
+    (<s> ^stage CBC -)
+    (<s> ^stage MF)
+}
+
+
+
+
+
+
+

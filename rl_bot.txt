@@ -1,0 +1,82 @@
+rl --set learning on
+
+sp {propose*initialize-rl-bot
+   (state <s> ^superstate nil
+             -^name)
+-->
+   (<s> ^operator <o> +)
+   (<o> ^name initialize-rl-bot)
+}
+
+sp {apply*initialize-rl-bot
+   (state <s> ^operator <op>
+   			  ^io.output-link <out>)
+   (<op> ^name initialize-rl-bot)
+
+-->
+   (<s> ^name rl-bot)
+   (<out> ^move-lift.height 0
+   		  ^move-head.angle 0)
+}
+
+sp {bot*propose*pick-up-block
+	(state <s> ^name rl-bot
+			   ^io.input-link <in>)
+	(<in> ^object.object-id <id>)
+-->
+	(<s> ^operator <o> +)
+	(<o> ^name pick-up-block
+		 ^idnum <id>)
+}
+
+gp {bot*select*obj
+	(state <s> ^name rl-bot
+			   ^operator <o> +)
+	(<o> ^name pick-up-block
+		 ^idnum [ 0 1 2 3 ])
+-->
+	(<s> ^operator <o> = 0.0)
+
+}
+
+sp {bot*apply*pick-up-obj
+	(state <s> ^name rl-bot
+			   ^io.output-link <out>
+			   ^operator <o>)
+	(<o> ^name pick-up-block
+		 ^idnum <id>)
+-->
+	(<out> ^pick-up-object.object-id <id>)
+	(<s> ^reward <id>)
+	
+}
+
+sp {RL*elaborate*state
+	(state <s> ^name rl-bot
+				^reward-link <rl>
+				^reward <id>)
+
+-->
+	(<rl> ^reward.value 3.0) 
+}
+
+
+sp {propose*after*pickup
+	(<s> ^name rl-bot
+		^reward <num>
+		^reward-link.reward.value <x>)
+-->
+	(<s> ^operator <o> = 0.0)
+	(<s> ^operator <o> + )
+	(<o> ^name after-pickup)
+	
+
+}
+
+
+
+
+
+
+
+

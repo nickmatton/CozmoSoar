@@ -92,16 +92,26 @@ def get_obj_str(obj, str_type):
     rotated_vectors = np.transpose(np.matmul(rotation_matrix, vectors))
     
     # rotated vertices = position array + rotated vectors
-    vertices = np.transpose(np.array([[ai + bi for ai, bi in zip(pos_arr, vector)] for vector in rotated_vectors]))
-    
+    vertices = np.array([[ai + bi for ai, bi in zip(pos_arr, vector)] for vector in rotated_vectors])
+    print("block pose:")
+    for a in pos_arr:
+        print(a)
+    print("------------")
+    # for a in vertices:
+    #     print(a)
     # generate [TRANSFORM] portion of svs string
-    scalar = 1000.0   # turns navmap oordinates in mm to SVS coordinates in m
+    scalar = 1000.0   # turns navmap cordinates in mm to SVS coordinates in m
     geo_str = "v"
+
     for vertex in vertices:
         geo_str += f' {vertex[0]/scalar} {vertex[1]/scalar} {vertex[2]/scalar}'
     svs_str = f"{geo_str} p {pos_arr[0]/scalar} {pos_arr[1]/scalar} {pos_arr[2]/scalar} r {eul[0]} {eul[1]} {eul[2]}"
-    
+
+    for x in range(len(vertices)):
+        for y in range(len(vertices[x])):
+            vertices[x][y] = vertices[x][y]/2
+
     if str_type == 'add':
-        return f'add {oid} world {svs_str}'
+        return f'add {oid} world {svs_str}', vertices, oid
     else:
-        return f'change {oid} {svs_str}'
+        return f'change {oid} {svs_str}', vertices, oid
